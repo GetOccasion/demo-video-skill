@@ -45,20 +45,23 @@ class BrowserError(RuntimeError):
     pass
 
 
-def ab(*args, check=True, attempts=4):
+def ab(*args, check=True, attempts=None):
     """Runs one agent-browser command and returns its data. Retries, because clicks fail while the layout
-    is still shifting. agent-browser exits non-zero on failure; --json carries the reason."""
-    for _ in range(attempts):
+    is still shifting; with check off it tries once, so a missing optional element doesn't stall a take.
+    agent-browser exits non-zero on failure; --json carries the reason."""
+    attempts = attempts or (4 if check else 1)
+    for attempt in range(attempts):
         result = subprocess.run(["agent-browser", "--json", *map(str, args)], capture_output=True, text=True)
         try:
             reply = json.loads(result.stdout)
         except json.JSONDecodeError:
             reply = None
         if not isinstance(reply, dict):
-            reply = {"error": (result.stdout + result.stderr).strip()}
-        if result.returncode == 0:
+            reply = {"error": (result.stdout + result.stderr).strip() or "no reply"}
+        elif result.returncode == 0:
             return reply.get("data")
-        time.sleep(0.8)
+        if attempt + 1 < attempts:
+            time.sleep(0.8)
     if check:
         raise BrowserError(f"agent-browser {' '.join(map(str, args))}: {reply.get('error')}")
     return None
