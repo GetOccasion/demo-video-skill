@@ -26,16 +26,36 @@ Then ask Claude Code for a demo video of a feature. The skill checks its own req
 
 - `agent-browser`
 - `ffmpeg` and `ffprobe` with libx264
-- [`uv`](https://docs.astral.sh/uv/), which runs Kokoro and Pillow on Python 3.12
+- A Chrome that agent-browser finds (`agent-browser install` gets one)
+- [`uv`](https://docs.astral.sh/uv/), which runs Kokoro and Pillow on Python 3.12 from `uv.lock`
 - Network access to Hugging Face the first time, to download the Kokoro model
+- A subtitle font: macOS's system font or DejaVu Sans (`fonts-dejavu-core` on Debian and Ubuntu), or `--font`
 - Optional: `espeak-ng`, for better pronunciation of unusual words
+
+## Preinstall it in an image
+
+To make videos in a container or CI runner that has no network, or should not download a few GB per job, install the environment and the model when the image is built, then point the scripts at them:
+
+```dockerfile
+COPY demo-video /opt/demo-video/skill
+RUN cd /opt/demo-video/skill \
+ && UV_PROJECT_ENVIRONMENT=/opt/demo-video/venv UV_PYTHON_INSTALL_DIR=/opt/demo-video/python \
+    UV_PYTHON_PREFERENCE=only-managed UV_COMPILE_BYTECODE=1 uv sync --frozen \
+ && HF_HOME=/opt/demo-video/hf /opt/demo-video/venv/bin/python scripts/fetch_model.py
+ENV DEMO_VIDEO_VENV=/opt/demo-video/venv DEMO_VIDEO_HF_HOME=/opt/demo-video/hf
+```
+
+With `DEMO_VIDEO_VENV` set, `scripts/python` runs that environment with Hugging Face offline, so a missing model fails instead of downloading. Chrome's sandbox usually can't start in a container; `AGENT_BROWSER_ARGS=--no-sandbox` turns it off. An image whose users add Chrome some way of their own can set `DEMO_VIDEO_CHROME_HINT` to that instruction, and the preflight prints it when Chrome is missing.
 
 ## Contents
 
 - `SKILL.md`: the workflow Claude follows, from picking the story to reviewing the result.
+- `scripts/preflight.sh`: checks everything above before any work starts.
+- `scripts/python`: runs the Python scripts on the locked environment, or a preinstalled one.
 - `scripts/narrate.py`: renders each scene's narration and its word timings.
 - `scripts/recorder.py`: the scenario API (`Demo`, takes, scenes, cues, menu helpers).
 - `scripts/assemble.py`: freezes frames to the narration, adds subtitles and audio.
+- `scripts/fetch_model.py`: puts a pinned revision of the Kokoro model in a Hugging Face cache.
 - `references/example_scenario.py`: a full example scenario for a fictional app.
 
 ## License

@@ -46,16 +46,22 @@ class BrowserError(RuntimeError):
 
 
 def ab(*args, check=True, attempts=4):
-    """Runs one agent-browser command. Retries, because clicks fail while the layout is still shifting."""
+    """Runs one agent-browser command and returns its data. Retries, because clicks fail while the layout
+    is still shifting. agent-browser exits non-zero on failure; --json carries the reason."""
     for _ in range(attempts):
-        result = subprocess.run(["agent-browser", *map(str, args)], capture_output=True, text=True)
-        out = (result.stdout + result.stderr).strip()
-        if "✗" not in out and result.returncode == 0:
-            return out
+        result = subprocess.run(["agent-browser", "--json", *map(str, args)], capture_output=True, text=True)
+        try:
+            reply = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            reply = None
+        if not isinstance(reply, dict):
+            reply = {"error": (result.stdout + result.stderr).strip()}
+        if result.returncode == 0:
+            return reply.get("data")
         time.sleep(0.8)
     if check:
-        raise BrowserError(f"agent-browser {' '.join(map(str, args))}: {out}")
-    return out
+        raise BrowserError(f"agent-browser {' '.join(map(str, args))}: {reply.get('error')}")
+    return None
 
 
 class Scene:
@@ -104,7 +110,7 @@ class Take:
         self.demo, self.name, self.timeline, self.holds = demo, name, {}, []
 
     def __enter__(self):
-        ab("record", "start", self.demo.workdir / f"{self.name}.mp4", "--cursor")
+        ab("record", "start", self.demo.workdir / f"{self.name}.mp4", "--cursor", attempts=1)
         self.start = time.monotonic()
         if not TIMED:
             time.sleep(0.5)
@@ -137,7 +143,7 @@ class Take:
         if not TIMED and exc_type is None:
             self.sync.append(self.flash())
         time.sleep(0.5)
-        ab("record", "stop")
+        ab("record", "stop", attempts=1)
         if exc_type:
             return
         timeline, holds = (self.demo.workdir / f"{self.name}.{kind}.json" for kind in ("timeline", "holds"))
@@ -196,10 +202,9 @@ class Demo:
 
     def glide_to(self, selector, check=True):
         """Glides the pointer to the middle of `selector`. Returns False when it isn't on the page and check is off."""
-        out = ab("get", "box", selector, "--json", check=check)
-        if not out.startswith("{") or not json.loads(out)["success"]:
+        box = ab("get", "box", selector, check=check)
+        if not box:
             return False
-        box = json.loads(out)["data"]
         self.move(round(box["x"] + box["width"] / 2), round(box["y"] + box["height"] / 2))
         return True
 
@@ -210,7 +215,7 @@ class Demo:
         time.sleep(duration / 1000)
         last = None
         for _ in range(30):
-            position = ab("eval", _SCROLL_POSITION_JS)
+            position = ab("eval", _SCROLL_POSITION_JS)["result"]
             if position == last:
                 break
             last = position
@@ -221,7 +226,7 @@ class Demo:
         self.click(selector)
         ab("fill", selector, "")
         if text:
-            ab("keyboard", "type", text)
+            ab("keyboard", "type", text, attempts=1)  # a retry would type the text twice
         time.sleep(settle)
 
     # -- menus: give the viewer time to read the list -----------------------------------------
@@ -314,7 +319,7 @@ _NATIVE_MENU_JS = """(() => {
   const menu = document.createElement('div');
   menu.id = '__demo_select';
   const style = document.createElement('style');
-  style.textContent = '#__demo_select div:hover{background:#6d28d9;color:#fff}';
+  style.textContent = '#__demo_select div:hover{background:#e5e7eb}';
   menu.appendChild(style);
   const font = getComputedStyle(select).font;
   Object.assign(menu.style, {position: 'fixed', left: box.left + 'px', minWidth: box.width + 'px',

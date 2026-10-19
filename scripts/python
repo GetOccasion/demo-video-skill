@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Runs one of this skill's Python scripts on the environment ../uv.lock pins:
+#
+#   bash "$SCRIPTS/python" "$SCRIPTS/narrate.py" <workdir> ...
+#
+# An image that preinstalled that environment and Kokoro's model sets DEMO_VIDEO_VENV and DEMO_VIDEO_HF_HOME;
+# there nothing downloads, and a missing model fails instead of fetching it. Elsewhere uv builds the
+# environment once under ~/.cache/demo-video, and Kokoro fetches its model from Hugging Face on first use.
+set -euo pipefail
+if [[ -n "${DEMO_VIDEO_VENV:-}" ]]; then
+  export HF_HOME="${DEMO_VIDEO_HF_HOME:?DEMO_VIDEO_VENV is set, so DEMO_VIDEO_HF_HOME must be too}" HF_HUB_OFFLINE=1
+  exec "$DEMO_VIDEO_VENV/bin/python" -I "$@"
+fi
+skill="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export UV_PROJECT_ENVIRONMENT="${XDG_CACHE_HOME:-$HOME/.cache}/demo-video/venv"
+exec uv run --quiet --frozen --project "$skill" python -I "$@"

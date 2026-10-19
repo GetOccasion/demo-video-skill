@@ -1,7 +1,6 @@
 """Renders each scene's narration with Kokoro, plus per-word timestamps.
 
-    uv run --python 3.12 --with kokoro --with soundfile --with pip \\
-      python -I narrate.py <workdir> [--voice af_heart] [--speed 1.0] [--only 03_range 07_first]
+    bash python narrate.py <workdir> [--voice af_heart] [--speed 1.0] [--only 03_range 07_first]
 
 Reads <workdir>/scenes.json: [{"id": "01_intro", "text": "..."}, ...]
 Writes <workdir>/tts/<id>.wav (24 kHz) and <workdir>/tts/<id>.words.json ([{"w", "s", "e"}], seconds).

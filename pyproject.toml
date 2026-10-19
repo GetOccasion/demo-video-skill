@@ -1,0 +1,29 @@
+# What narrate.py and assemble.py run on. uv.lock pins every package, so every machine and image gets the same
+# versions. scripts/python runs it; README.md says how to preinstall it, so nothing downloads when a video is made.
+[project]
+name = "demo-video"
+version = "0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "kokoro==0.9.4",
+  # misaki loads this spaCy model and installs it with pip on first use when it is missing.
+  "en-core-web-sm",
+  "numpy",
+  "pillow",
+  "soundfile",
+  # Listed so the CPU-only source below applies to it; kokoro needs it.
+  "torch",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+en-core-web-sm = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" }
+# On Linux, PyPI's torch bundles CUDA, several GB Kokoro never uses here. macOS wheels are CPU-only already.
+torch = { index = "pytorch-cpu", marker = "sys_platform == 'linux'" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true

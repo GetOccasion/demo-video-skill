@@ -1,7 +1,6 @@
 """Joins recorded takes, places each scene's narration at its recorded start and burns in subtitles.
 
-    uv run --python 3.12 --with pillow python -I assemble.py <workdir> --takes desktop phone outro \\
-      [--size 1440x900] [--out demo] [--font /System/Library/Fonts/SFNS.ttf]
+    bash python assemble.py <workdir> --takes desktop phone outro [--size 1440x900] [--out demo] [--font <a .ttf>]
 
 Needs, per take, <workdir>/<take>.mp4 and either <take>.holds.json (an untimed recording) or
 <take>.timeline.json (a timed one), both written by recorder.py, and <workdir>/tts/<scene>.wav +
@@ -17,14 +16,20 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
+# The first of these that exists is the subtitle font: macOS's system font, then Debian's and Ubuntu's DejaVu.
+# preflight.sh checks the same list.
+FONTS = ["/System/Library/Fonts/SFNS.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"]
+
 parser = argparse.ArgumentParser()
 parser.add_argument("workdir", type=Path)
 parser.add_argument("--takes", nargs="+", required=True)
 parser.add_argument("--size", default="1440x900")
 parser.add_argument("--out", default="demo")
-parser.add_argument("--font", default="/System/Library/Fonts/SFNS.ttf")
-parser.add_argument("--canvas", default="0xEEEAF6", help="background behind takes of another size, e.g. a phone")
+parser.add_argument("--font", default=next((font for font in FONTS if Path(font).exists()), None))
+parser.add_argument("--canvas", default="0xE5E7EB", help="background behind takes of another size, e.g. a phone")
 args = parser.parse_args()
+if args.font is None:
+    parser.error(f"none of {', '.join(FONTS)} exists; pass --font <a .ttf>")
 
 SP = args.workdir.resolve()  # the concat lists need absolute paths
 TTS, OUT = SP / "tts", SP / "build"

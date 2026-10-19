@@ -11,16 +11,15 @@ The one idea that makes it work: **the narration is the clock.** Render the voic
 
 ## Tools
 
-Run the preflight first:
+This skill's scripts sit in `scripts/` under its base directory, the one shown as "Base directory for this skill" when it loaded; the example scenario sits in `references/` there. Each shell command starts afresh, so a variable exported in one is gone in the next: start every command that needs them with `export SCRIPTS=<base directory>/scripts DEMO=<demo directory>;` (below), as here for the preflight:
 
 ```bash
-export SCRIPTS=<this skill's base directory>/scripts   # e.g. ~/.claude/skills/demo-video/scripts
-bash $SCRIPTS/preflight.sh
+export SCRIPTS=<base directory>/scripts; bash $SCRIPTS/preflight.sh
 ```
 
-It checks for `agent-browser`, `ffmpeg`/`ffprobe` with libx264, `uv` (which runs Kokoro and Pillow on Python 3.12 whatever the system Python is) and access to Hugging Face for the Kokoro model. **If it exits non-zero, stop**: tell the user what is missing and how to install it, and don't start on the script, the data or the recording. Don't substitute another TTS engine, recorder or a silent video without asking — the result would not be what they asked for. Its warnings (no `espeak-ng`, no system font) don't block; mention them.
+It checks for `agent-browser` and a Chrome for it, `ffmpeg`/`ffprobe` with libx264, and Kokoro's Python environment and model: either preinstalled (`DEMO_VIDEO_VENV` is set), or `uv` (which runs Kokoro and Pillow on Python 3.12 whatever the system Python is) plus access to Hugging Face. **If it exits non-zero, stop**: tell the user what is missing and how to install it, and don't start on the script, the data or the recording. Don't substitute another TTS engine, recorder or a silent video without asking — the result would not be what they asked for. Its warnings (no `espeak-ng`, no system font) don't block; mention them.
 
-Scripts live in the skill's own base directory, under `scripts/` (`$SCRIPTS`, exported above; scenarios read it too) — not in the project repo. The example scenario is in the same base directory, under `references/`. Keep all working files in one demo directory (`DEMO`) in the scratchpad, outside the repo.
+`$SCRIPTS/python` runs the Python scripts below on the environment the skill's `uv.lock` pins; scenarios read `$SCRIPTS` too. Keep all working files in one demo directory (`DEMO`, an absolute path) in the scratchpad, outside the repository. If you can write only inside the repository, or the video is to be attached to a pull request from there, use a folder in it that git ignores instead: `tmp/demo-video/<name>` when `git check-ignore -q tmp/demo-video` succeeds, otherwise another folder it confirms is ignored, so nothing in it can be committed. Don't edit `.gitignore` for this without asking.
 
 ## Workflow
 
@@ -59,7 +58,7 @@ Write `DEMO/scenes.json`: `[{"id": "01_intro", "text": "..."}, ...]`. One scene 
 ### 4. Render the voiceover
 
 ```bash
-uv run --python 3.12 --with kokoro --with soundfile --with pip python -I $SCRIPTS/narrate.py $DEMO
+export SCRIPTS=… DEMO=…; bash $SCRIPTS/python $SCRIPTS/narrate.py $DEMO
 ```
 
 Writes `tts/<id>.wav` and `tts/<id>.words.json` with per-word timestamps, and prints each scene's length. Re-render single scenes with `--only <id> ...`. Voices: `af_heart` (most natural US), `am_michael`, `bf_emma` (British). The first letter of the voice picks the language.
@@ -84,14 +83,16 @@ A scenario is a short Python script in `DEMO` using `SCRIPTS/recorder.py`. Start
 
 **One viewport per take.** A take whose viewport changes mid-recording comes out distorted. Record a phone segment as its own take (`demo.viewport(390, 844)`); assembly fits it onto a canvas. A short closing take after it returns to desktop.
 
-Record each take: `python3 -I $DEMO/scenario.py desktop` (and `phone`, `outro`, …). Recording is untimed: `s.at()` and `s.until()` don't sleep but log a hold point, so the take runs only as long as its actions do (a 2-minute video records in under a minute) and a broken selector or a cue word missing from the narration fails within seconds. That makes a separate dry run unnecessary; iterate on takes directly. Each take writes `<take>.mp4` and `<take>.holds.json`; assembly freezes the frame at each hold point until the narration reaches its cue word. If a step fails mid-take, fix the scenario and re-run the whole take; the holds must come from a clean run.
+Record each take: `export SCRIPTS=… DEMO=…; python3 -I $DEMO/scenario.py desktop` (and `phone`, `outro`, …). Recording is untimed: `s.at()` and `s.until()` don't sleep but log a hold point, so the take runs only as long as its actions do (a 2-minute video records in under a minute) and a broken selector or a cue word missing from the narration fails within seconds. That makes a separate dry run unnecessary; iterate on takes directly. Each take writes `<take>.mp4` and `<take>.holds.json`; assembly freezes the frame at each hold point until the narration reaches its cue word. If a step fails mid-take, fix the scenario and re-run the whole take; the holds must come from a clean run.
 
 Every action must leave the page settled before the next cue, since that last frame is what gets frozen: keep the `time.sleep` after a reload or a menu that submits, or a held frame shows a half-loaded page. Anything that runs on its own clock (a toast that fades, a spinner, a countdown) only advances while the scenario is acting, so a hold freezes it mid-way. To keep one off camera, settle until it has finished before the next cue, as `prime` does for login notices. To show one, such as a "Saved" toast appearing and fading, put a `time.sleep` after the action that covers the whole effect, so it plays out before the next hold. For a page that animates continuously while idle, record that take timed with `DEMO_TIMED=1`, which sleeps until each cue word while recording and writes `<take>.timeline.json` instead.
 
 ### 7. Assemble
 
+Close the browser first (`agent-browser close`): Chrome and ffmpeg's encoder together can outgrow a small machine's or container's memory.
+
 ```bash
-uv run --python 3.12 --with pillow python -I $SCRIPTS/assemble.py $DEMO --takes desktop phone outro --out <name>
+export SCRIPTS=… DEMO=…; bash $SCRIPTS/python $SCRIPTS/assemble.py $DEMO --takes desktop phone outro --out <name>
 ```
 
 Produces `DEMO/build/<name>.mp4` with burned-in subtitles, a soft subtitle track and narration, plus `<name>.srt`.
@@ -101,13 +102,13 @@ Produces `DEMO/build/<name>.mp4` with burned-in subtitles, a soft subtitle track
 You can see the video but you can't hear it. Check what you can:
 
 ```bash
-ffmpeg -v error -y -i build/<name>.mp4 -vf "fps=1/6,scale=480:-1,tile=4x8" -frames:v 1 build/grid.png   # read it
-ffmpeg -i build/<name>.mp4 -map 0:a -af volumedetect -f null - 2>&1 | grep volume                        # not silent
+export DEMO=…; ffmpeg -v error -y -i $DEMO/build/<name>.mp4 -vf "fps=1/6,scale=480:-1,tile=4x8" -frames:v 1 $DEMO/build/grid.png   # read it
+export DEMO=…; ffmpeg -i $DEMO/build/<name>.mp4 -map 0:a -af volumedetect -f null - 2>&1 | grep volume                              # not silent
 ```
 
 In the grid, confirm that every scene shows what its narration describes, the subtitles never cover the thing being pointed at, and no frame catches a half-loaded page or an error. Grab single frames at the cue times (`-ss <t>`) for the moments that matter.
 
-Then stop the dev server, copy the video somewhere the user can find it, and `open` it. When you report back, say what you could not verify (audio by ear) and list any shortcuts taken, such as a stand-in menu.
+Then stop the dev server and hand the video over: on the user's own machine, copy it somewhere they can find it and `open` it; elsewhere, give its path, or attach it to the pull request if a tool of yours does that. When you report back, say what you could not verify (audio by ear) and list any shortcuts taken, such as a stand-in menu.
 
 ## Pitfalls already paid for
 
